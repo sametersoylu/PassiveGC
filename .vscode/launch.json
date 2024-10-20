@@ -1,0 +1,28 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "(gdb) Launch", // Name of the configuration in the dropdown
+        "type": "cppdbg", // Type for C++ debugging
+        "request": "launch", // Launch mode (not attach)
+        "program": "${workspaceFolder}/main", // Path to your compiled binary
+        "args": [], // Optional: Arguments passed to the executable
+        "stopAtEntry": false, // Do not stop at the main function
+        "cwd": "${workspaceFolder}", // Set the working directory
+        "environment": [], // Optional: Define environment variables
+        "externalConsole": false, // Whether to use an external terminal
+        "MIMode": "gdb", // Use gdb as the debugger
+        "setupCommands": [
+          {
+            "description": "Enable pretty-printing for gdb",
+            "text": "-enable-pretty-printing", // Pretty-print STL types in gdb
+            "ignoreFailures": true
+          }
+        ],
+        "miDebuggerPath": "/usr/bin/gdb", // Path to gdb (default for Linux)
+        "logging": { "trace": true, "traceResponse": true, "engineLogging": false },
+        "internalConsoleOptions": "openOnSessionStart"
+      }
+    ]
+  }
+  
