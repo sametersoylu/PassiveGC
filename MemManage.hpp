@@ -5,11 +5,14 @@
 #include <cstring>
 #include <exception>
 #include <iostream>
+#include <list>
+#include <new>
 #include <type_traits>
 #include <utility>
 #include <vector>
 #include <algorithm>
 #include <string>
+#include <limits>
 
 /* 
     This namespace provides passive automatic memory management
@@ -17,25 +20,28 @@
     objects.
 */
 namespace AutomaticMemory {
+    class Heap;
+
     namespace Errors {
         class base_error {
             public: 
             base_error() = default;
             base_error(base_error const&) = delete; 
-            base_error(base_error&& other) : message(other.message), error_code(other.error_code), exit(other.exit) {
+            base_error(base_error&& other) : message(other.message), _error_code(other._error_code), exit(other.exit) {
                 other.dont_exit();
             }
-            base_error(std::string const& error_message, int error_code = -1) : message(error_message), error_code(error_code), exit(true) { 
+            base_error(std::string const& error_message, int error_code = -1) : message(error_message), _error_code(error_code), exit(true) { 
                 std::cerr << "Error: \"" << message << "\" at line " << __LINE__ << " in file \"" << __FILE_NAME__ << "\"." << std::endl; 
             }
             ~base_error() {
                 if (exit) {
-                    std::exit(error_code);
+                    exits_on_error = true;
+                    std::exit(_error_code);
                 }
             }
             base_error& operator=(base_error&& other) {
                 message = std::move(other.message);
-                error_code = std::move(other.error_code);
+                _error_code = std::move(other._error_code);
                 other.dont_exit();
                 return *this;
             }
@@ -45,24 +51,30 @@ namespace AutomaticMemory {
             std::string what() const {
                 return message; 
             }
-            protected: 
+            int error_code() const {
+                return _error_code;
+            }
+            protected:
             std::string message{};
-            int error_code = -1; 
+            int _error_code = -1; 
             mutable bool exit = false;
+            private:
+            friend class AutomaticMemory::Heap;
+            inline static bool exits_on_error = false; 
         };
 
         class BadConstruct : public base_error {
             public: 
             BadConstruct() : base_error("An error occurred while constructing object.", -2) {}
             BadConstruct(std::string const& message) : base_error(message, -2) {}
-            BadConstruct(BadConstruct&& other) : base_error(other.message, other.error_code) { other.dont_exit(); } 
+            BadConstruct(BadConstruct&& other) : base_error(other.message, other._error_code) { other.dont_exit(); } 
         };
 
         class IndexOutOfBounds : public base_error {
             public: 
             IndexOutOfBounds() : base_error("Index out of bounds", -3) {}
             IndexOutOfBounds(std::string const& message) : base_error(message, -3) {}
-            IndexOutOfBounds(IndexOutOfBounds&& other) : base_error(other.message, other.error_code) { other.dont_exit(); }
+            IndexOutOfBounds(IndexOutOfBounds&& other) : base_error(other.message, other._error_code) { other.dont_exit(); }
         };
 
         
@@ -134,6 +146,9 @@ namespace AutomaticMemory {
         Gigabyte = 1000000000,
     }; 
     
+    template<typename T_>
+    class Allocator;
+
     /*
         Global heap class. 
         Memory is handled in this way;
@@ -151,6 +166,7 @@ namespace AutomaticMemory {
         is a fancy wrapper for std::vector<unsigned char> and Heap is a fancy wrapper and manager for std::vector<Segment>.
         So it's as much memory safe as std::vector.   
     */
+
     class Heap {
     private:
         /* Segment
@@ -162,6 +178,9 @@ namespace AutomaticMemory {
             Segment(size_t size) : size{size} { m_Memory.reserve(size); }
             void reserve(size_t const& size) { m_Memory.reserve(size);  this->size = size; }
             void resize(size_t const& size) { m_Memory.resize(size);  this->size = size; }
+            void * data() {
+                return static_cast<void*>(m_Memory.data());
+            }
             bool operator==(Segment const& other) const { return m_Memory == other.m_Memory and size == other.size; }
             auto begin() { return m_Memory.begin(); }
             auto end() { return m_Memory.end(); }
@@ -207,7 +226,7 @@ namespace AutomaticMemory {
             template<bool _array = array>
             typename std::enable_if<_array, T_&>::type operator[](size_t index) {
                 if (index < 0 or index > array_size) {
-                     
+                    SetError(std::move(Errors::IndexOutOfBounds{}));
                 }
                 return *(base_type::m_Ptr + index); 
             }
@@ -251,7 +270,9 @@ namespace AutomaticMemory {
                 owner->free(*this);
             }
 
-        }; 
+        };
+
+        
         
         Heap() { setatexit(); }; 
 
@@ -264,7 +285,7 @@ namespace AutomaticMemory {
         template<typename T_, typename... ConstructorArgs>
         Pointer<T_, true> allocate_constructed_n(size_t count, ConstructorArgs&&... args) {
             Segment& allocated = allocate(sizeof(T_) * count); 
-            T_ * f_Ptr = static_cast<T_*>(static_cast<void*>(allocated.m_Memory.data()));
+            T_ * f_Ptr = static_cast<T_*>(allocated.data());
             try {
                 if constexpr (sizeof...(ConstructorArgs) > 0) {
                     for (int i = 0; i < count; i++) {
@@ -295,7 +316,7 @@ namespace AutomaticMemory {
         template<typename T_, typename... ConstructorArgs>
         Pointer<T_, false> allocate_constructed(ConstructorArgs&&... args) {
             Segment& allocated = allocate(sizeof(T_)); 
-            T_ * f_Ptr = static_cast<T_*>(static_cast<void*>(allocated.m_Memory.data()));
+            T_ * f_Ptr = static_cast<T_*>(allocated.data());
             try {
                 if constexpr (sizeof...(ConstructorArgs) > 0) {
                     new(f_Ptr) T_{std::forward<ConstructorArgs>(args)...}; 
@@ -336,11 +357,10 @@ namespace AutomaticMemory {
             Internal free method reserved for further implementations on different data structures
             that this class can be used as the allocator. 
         */
-        void free(Segment& segment) {
-            memory_in_use -= segment.size;
-            auto it = std::find(m_Segments.begin(), m_Segments.end(), segment); 
-            if (it == m_Segments.end()) { return; }
-            m_Segments.erase(it);
+        void free(std::vector<Segment>::iterator& segment) {
+            memory_in_use -= segment->size;
+            if (segment == m_Segments.end()) { return; }
+            m_Segments.erase(segment);
             m_Segments.shrink_to_fit();
         }
 
@@ -350,14 +370,71 @@ namespace AutomaticMemory {
             m_Segments.shrink_to_fit();
         }
 
-        void setatexit(); 
+        void setatexit();
+
+        template<typename T_>
+        friend class Allocator; 
+    };
+    
+    inline Heap heap;
+
+    /*
+        This class is an interface class to replace C++'s std::allocator type to allocate strings, and new vectors and such stuff
+        with heap.allocate(); 
+    */
+    template<typename T_>
+    class Allocator {
+        public: 
+        using value_type = T_; 
+
+        T_ * allocate(std::size_t n) {
+            Heap::Segment& segment = heap.allocate(n * sizeof(T_)); 
+            T_ * ptr = static_cast<T_*>(segment.data());
+            return ptr; 
+        }
+        
+        void deallocate(T_ * p, std::size_t n) {
+            auto it = std::find_if(heap.m_Segments.begin(), heap.m_Segments.end(), [&](Heap::Segment& segment) {
+                if (static_cast<T_*>(segment.data()) == p) {
+                    return true; 
+                } 
+                return false;
+            });
+            
+            if (it == heap.m_Segments.end()) {
+                throw std::bad_alloc{}; 
+            }
+
+            heap.free(it);
+        }
+
+        size_t max_size() {
+            return std::numeric_limits<size_t>::max() / sizeof(value_type);
+        }
+        
+        template<class U, class... Args>
+        void construct(U * p, Args&&... args) {
+            new(p) U{std::forward<Args>(args)...}; 
+        }
+
+        template<class U>
+        void destroy(U * p) {
+            p->~U();
+        }
     };
 
-    inline Heap heap;
 
     inline void Heap::setatexit() {
         std::atexit([] () {
-            heap.free_all();           
+            if(Errors::base_error::exits_on_error)
+                heap.free_all();           
         }); 
     }
+
+    using string = std::basic_string<char, std::char_traits<char>, Allocator<char>>; 
+    using wstring = std::basic_string<wchar_t, std::char_traits<wchar_t>, Allocator<wchar_t>>; 
+    template<typename T_>
+    using vector = std::vector<T_, Allocator<T_>>;
+    template<typename T_>
+    using list = std::list<T_, Allocator<T_>>; 
 }
