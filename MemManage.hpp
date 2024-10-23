@@ -128,8 +128,7 @@ namespace AutomaticMemory {
             Freeing is handled by the derived class. Free should never be used by hand. 
         */
         void free() {
-            if (freed) return; 
-            std::cout << "Free called!" << std::endl;
+            if (freed) return;
             static_cast<D_*>(this)->free_impl();
             freed = true; 
         }
@@ -245,7 +244,7 @@ namespace AutomaticMemory {
             Heap * owner;
             Errors::base_error error;
             size_t array_size; 
-            bool moved;
+            bool moved = false;
 
             template<bool _array = array>
             std::enable_if_t<_array, Pointer> SetSize(size_t size) {
@@ -260,6 +259,8 @@ namespace AutomaticMemory {
 
             void free_impl() {
                 if (moved) { return; }
+                std::clog << "Memory freed" << std::endl;
+                
                 if constexpr (array) {
                     for (size_t i = 0; i < memsegment.size / sizeof(T_); ++i) {
                         (base_type::m_Ptr + i)->~T_();
@@ -269,7 +270,6 @@ namespace AutomaticMemory {
                 }
                 owner->free(*this);
             }
-
         };
 
         

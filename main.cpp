@@ -1,14 +1,13 @@
 #include "MemManage.hpp"
 #include <iostream>
 #include <cstdio>
-#include <string>
 
 using AutomaticMemory::heap; 
 
 struct A {
     A() : str{"Hello World!"} { }
-    A(std::string const& str) : str(str) {}
-    std::string str; 
+    A(AutomaticMemory::string const& str) : str(str) {}
+    AutomaticMemory::string str; 
 };
 
 auto test() {
@@ -30,18 +29,7 @@ auto foo() {
 
 
 auto main() -> int {
-    AutomaticMemory::string str{"Hello world!"};
-    AutomaticMemory::wstring wstr{L"Hello Wide World!"}; 
-    
-    str.resize(123);
-    AutomaticMemory::vector<int> vec{1, 2, 3}; 
-    vec.resize(1024 * 1024 * 4);
-    std::cout << str << std::endl; 
-    std::cout << heap.used_memory(AutomaticMemory::SizeTypes::Kilobyte) << std::endl; 
-    std::cout << vec[1] << std::endl;
-    
-    std::wcout << wstr << std::endl;
-    wstr.resize(64);
+    foo();
 
     getchar();
     return 0; 
