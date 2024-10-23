@@ -34,7 +34,7 @@ auto main() -> int {
 
     str.resize(123);
     AutomaticMemory::vector<int> vec{1, 2, 3}; 
-    vec.resize(1024 * 1024);
+    vec.resize(1024 * 1024 * 4);
     std::cout << str << std::endl; 
     std::cout << heap.used_memory(AutomaticMemory::SizeTypes::Kilobyte) << std::endl; 
     std::cout << vec[1] << std::endl;
