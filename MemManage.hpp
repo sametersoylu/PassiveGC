@@ -17,11 +17,6 @@
     objects.
 */
 namespace AutomaticMemory {
-    /* 
-        This class is an interface class for Pointer types.
-        Essentially, this provides a common ground for heap::pointer
-        and stack::pointer (if stack gets implemented).
-    */
     namespace Errors {
         class base_error {
             public: 
@@ -73,6 +68,11 @@ namespace AutomaticMemory {
         
     }
 
+    /* 
+        This class is an interface class for Pointer types.
+        Essentially, this provides a common ground for heap::pointer
+        and stack::pointer (if stack gets implemented).
+    */
     template<typename T_, typename D_>
     class base_pointer {
         public: 
