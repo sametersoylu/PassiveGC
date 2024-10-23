@@ -28,10 +28,11 @@ auto foo() {
     getchar();
 } // now the allocated space is released.
 
+
 auto main() -> int {
     AutomaticMemory::string str{"Hello world!"};
     AutomaticMemory::wstring wstr{L"Hello Wide World!"}; 
-
+    
     str.resize(123);
     AutomaticMemory::vector<int> vec{1, 2, 3}; 
     vec.resize(1024 * 1024 * 4);

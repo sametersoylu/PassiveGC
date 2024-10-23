@@ -386,13 +386,18 @@ namespace AutomaticMemory {
     class Allocator {
         public: 
         using value_type = T_; 
-
+        /* 
+            Allocates a memory and returns the address of the head of the allocated memory. 
+        */
         T_ * allocate(std::size_t n) {
             Heap::Segment& segment = heap.allocate(n * sizeof(T_)); 
             T_ * ptr = static_cast<T_*>(segment.data());
             return ptr; 
         }
-        
+        /*
+            Deallocates a memory. Tries to find the address. If address doesn't belong to heap. It'll call
+            bad alloc. 
+        */
         void deallocate(T_ * p, std::size_t n) {
             auto it = std::find_if(heap.m_Segments.begin(), heap.m_Segments.end(), [&](Heap::Segment& segment) {
                 if (static_cast<T_*>(segment.data()) == p) {
@@ -407,23 +412,43 @@ namespace AutomaticMemory {
 
             heap.free(it);
         }
-
+        /* 
+            Default max_size for allocators. std::vector uses std::allocator which uses this specific max_size
+            below. We allocate memory using std::vector thus we also use std::allocator means we share the same
+            max_size that is allocatable. 
+        */
         size_t max_size() {
             return std::numeric_limits<size_t>::max() / sizeof(value_type);
         }
         
+        /* 
+            New pointer statement. Constructs given pointer.
+        */
         template<class U, class... Args>
         void construct(U * p, Args&&... args) {
             new(p) U{std::forward<Args>(args)...}; 
         }
-
+        /* 
+            Call destructor of given pointer.
+        */
         template<class U>
         void destroy(U * p) {
             p->~U();
         }
     };
 
-
+    /*
+        In the case of any errors, heap will not throw exceptions. Instead it will call
+        std::exit(). The reason behind this; I want to release memory to operating system no matter
+        what. If an exception happens during allocation, it'll be coming from 
+        std::vector<unsigned char, std::allocator<unsigned char>>. Thus we can separate errors coming
+        from this system or any other part of the program.
+        
+        But if an error coming from this structure you'll be handed a geterror. You might ignore this 
+        method if you are sure what you do is not going to give any errors at all. If you don't use 
+        this method and any error occured and don't request "don't exit", your program will exit at the
+        end of the pointers life time. Make sure to handle any errors occures. 
+    */
     inline void Heap::setatexit() {
         std::atexit([] () {
             if(Errors::base_error::exits_on_error)
@@ -431,10 +456,22 @@ namespace AutomaticMemory {
         }); 
     }
 
+    /* 
+        std::string's overload that uses AutomaticMemory::Allocator as the allocator.
+    */
     using string = std::basic_string<char, std::char_traits<char>, Allocator<char>>; 
+    /* 
+        std::wstring's overload that uses AutomaticMemory::Allocator as the allocator.
+    */
     using wstring = std::basic_string<wchar_t, std::char_traits<wchar_t>, Allocator<wchar_t>>; 
     template<typename T_>
+    /* 
+        std::vectors's overload that uses AutomaticMemory::Allocator as the allocator.
+    */
     using vector = std::vector<T_, Allocator<T_>>;
+    /* 
+        std::list's overload that uses AutomaticMemory::Allocator as the allocator.
+    */
     template<typename T_>
     using list = std::list<T_, Allocator<T_>>; 
 }
