@@ -31,7 +31,7 @@ namespace AutomaticMemory {
                 other.dont_exit();
             }
             base_error(std::string const& error_message, int error_code = -1) : message(error_message), _error_code(error_code), exit(true) { 
-                std::cerr << "Error: \"" << message << "\" at line " << __LINE__ << " in file \"" << __FILE_NAME__ << "\"." << std::endl; 
+                std::cerr << "Error: \"" << message << "\"" << std::endl; 
             }
             ~base_error() {
                 if (exit) {
@@ -259,8 +259,6 @@ namespace AutomaticMemory {
 
             void free_impl() {
                 if (moved) { return; }
-                std::clog << "Memory freed" << std::endl;
-                
                 if constexpr (array) {
                     for (size_t i = 0; i < memsegment.size / sizeof(T_); ++i) {
                         (base_type::m_Ptr + i)->~T_();
@@ -296,9 +294,8 @@ namespace AutomaticMemory {
                     for(int i = 0; i < count; i++) {
                         new(f_Ptr + i) T_{};
                     }
-                } else {
-                    static_assert(false, "If type is not default constructible, you have to give constructor parameters!");
                 }
+                static_assert(std::is_default_constructible_v<T_> or sizeof...(ConstructorArgs) > 0, "If type is not default constructible, you have to give constructor parameters!");
             }
             catch(std::exception const& e) {
                 return Pointer<T_, true>{f_Ptr, this, allocated}.SetSize(count).SetError(std::move(Errors::BadConstruct{"Exception while constructing, construction stopped!\n  What: " + std::string(e.what())}));
@@ -323,9 +320,8 @@ namespace AutomaticMemory {
                 }
                 else if constexpr (std::is_default_constructible_v<T_>) {
                     new(f_Ptr) T_{}; 
-                } else {
-                    static_assert(false, "If type is not default constructible, you have to give constructor parameters!");
                 }
+                static_assert(std::is_default_constructible_v<T_> or sizeof...(ConstructorArgs) > 0, "If type is not default constructible, you have to give constructor parameters!");
             } catch(std::exception const& e) {
                 return std::move(Pointer<T_, false>{f_Ptr, this, allocated}.SetError(std::move(Errors::BadConstruct{"Exception while constructing, construction stopped!\n  What: " + std::string(e.what())})));
             }
@@ -384,55 +380,61 @@ namespace AutomaticMemory {
     */
     template<typename T_>
     class Allocator {
-        public: 
-        using value_type = T_; 
-        /* 
-            Allocates a memory and returns the address of the head of the allocated memory. 
+    public:
+        using value_type = T_;
+
+        Allocator() = default;
+
+        template<typename U>
+        Allocator(const Allocator<U>&) noexcept {}
+
+        /*
+            Allocates a memory and returns the address of the head of the allocated memory.
         */
-        T_ * allocate(std::size_t n) {
-            Heap::Segment& segment = heap.allocate(n * sizeof(T_)); 
-            T_ * ptr = static_cast<T_*>(segment.data());
-            return ptr; 
+        T_* allocate(std::size_t n) {
+            Heap::Segment& segment = heap.allocate(n * sizeof(T_));
+            T_* ptr = static_cast<T_*>(segment.data());
+            return ptr;
         }
         /*
             Deallocates a memory. Tries to find the address. If address doesn't belong to heap. It'll call
-            bad alloc. 
+            bad alloc.
         */
-        void deallocate(T_ * p, std::size_t n) {
+        void deallocate(T_* p, std::size_t n) {
             auto it = std::find_if(heap.m_Segments.begin(), heap.m_Segments.end(), [&](Heap::Segment& segment) {
                 if (static_cast<T_*>(segment.data()) == p) {
-                    return true; 
-                } 
+                    return true;
+                }
                 return false;
-            });
-            
+                });
+
             if (it == heap.m_Segments.end()) {
-                throw std::bad_alloc{}; 
+                throw std::bad_alloc{};
             }
 
             heap.free(it);
         }
-        /* 
+        /*
             Default max_size for allocators. std::vector uses std::allocator which uses this specific max_size
             below. We allocate memory using std::vector thus we also use std::allocator means we share the same
-            max_size that is allocatable. 
+            max_size that is allocatable.
         */
-        size_t max_size() {
-            return std::numeric_limits<size_t>::max() / sizeof(value_type);
+        size_t max_size() const {
+            return static_cast<size_t>(SIZE_MAX) / sizeof(value_type);
         }
-        
-        /* 
+
+        /*
             New pointer statement. Constructs given pointer.
         */
         template<class U, class... Args>
-        void construct(U * p, Args&&... args) {
-            new(p) U{std::forward<Args>(args)...}; 
+        void construct(U* p, Args&&... args) {
+            new(p) U{ std::forward<Args>(args)... };
         }
-        /* 
+        /*
             Call destructor of given pointer.
         */
         template<class U>
-        void destroy(U * p) {
+        void destroy(U* p) noexcept {
             p->~U();
         }
     };
@@ -440,38 +442,45 @@ namespace AutomaticMemory {
     /*
         In the case of any errors, heap will not throw exceptions. Instead it will call
         std::exit(). The reason behind this; I want to release memory to operating system no matter
-        what. If an exception happens during allocation, it'll be coming from 
+        what. If an exception happens during allocation, it'll be coming from
         std::vector<unsigned char, std::allocator<unsigned char>>. Thus we can separate errors coming
         from this system or any other part of the program.
-        
-        But if an error coming from this structure you'll be handed a geterror. You might ignore this 
-        method if you are sure what you do is not going to give any errors at all. If you don't use 
+
+        But if an error coming from this structure you'll be handed a geterror. You might ignore this
+        method if you are sure what you do is not going to give any errors at all. If you don't use
         this method and any error occured and don't request "don't exit", your program will exit at the
-        end of the pointers life time. Make sure to handle any errors occures. 
+        end of the pointers life time. Make sure to handle any errors occures.
     */
     inline void Heap::setatexit() {
-        std::atexit([] () {
-            if(Errors::base_error::exits_on_error)
-                heap.free_all();           
-        }); 
+        std::atexit([]() {
+            if (Errors::base_error::exits_on_error)
+                heap.free_all();
+            });
     }
+    template<typename T_>
+    using basic_string = std::basic_string<T_, std::char_traits<T_>, Allocator<T_>>; 
+    template<typename T_>
+    using basic_stringstream = std::basic_stringstream<T_, std::char_traits<T_>, Allocator<T_>>; 
 
-    /* 
+    /*
         std::string's overload that uses AutomaticMemory::Allocator as the allocator.
     */
-    using string = std::basic_string<char, std::char_traits<char>, Allocator<char>>; 
-    /* 
+    using string = basic_string<char>;
+    /*
         std::wstring's overload that uses AutomaticMemory::Allocator as the allocator.
     */
-    using wstring = std::basic_string<wchar_t, std::char_traits<wchar_t>, Allocator<wchar_t>>; 
-    template<typename T_>
-    /* 
+    using wstring = basic_string<wchar_t>;
+    using stringstream = basic_stringstream<char>; 
+    using wstringstream = basic_stringstream<wchar_t>; 
+
+    /*
         std::vectors's overload that uses AutomaticMemory::Allocator as the allocator.
     */
+    template<typename T_>
     using vector = std::vector<T_, Allocator<T_>>;
-    /* 
+    /*
         std::list's overload that uses AutomaticMemory::Allocator as the allocator.
     */
     template<typename T_>
-    using list = std::list<T_, Allocator<T_>>; 
+    using list = std::list<T_, Allocator<T_>>;
 }
